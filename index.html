@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>座席抽選アプリ</title>
+<style>
+body {
+  font-family: "Segoe UI", sans-serif;
+  padding: 20px;
+  background: #f7f7f7;
+  color: #333;
+}
+
+h3 {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+input[type="number"], input[type="text"] {
+  padding: 6px;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+button {
+  padding: 8px 16px;
+  font-size: 16px;
+  margin-right: 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #0078d4;
+  color: white;
+  transition: 0.2s;
+}
+
+button:disabled {
+  background: #999;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+button:hover:not(:disabled) {
+  background: #005fa3;
+}
+
+#statusArea {
+  margin-bottom: 15px;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.row {
+  display: flex;
+  gap: 40px;
+  margin-bottom: 30px;
+}
+
+.table {
+  background: white;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.table strong {
+  font-size: 18px;
+}
+
+.seat {
+  display: inline-block;
+  width: 55px;
+  height: 32px;
+  border: 1px solid #ccc;
+  margin: 3px;
+  text-align: center;
+  line-height: 32px;
+  font-size: 14px;
+  border-radius: 4px;
+  background: #fff;
+  transition: 0.2s;
+}
+
+.seat.filled {
+  background: #ffe08a;
+  border-color: #e0b84a;
+  font-weight: bold;
+}
+
+/* ▼ 履歴カード */
+.history-item {
+  background: white;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  border-left: 4px solid #0078d4;
+  border-radius: 4px;
+  font-size: 15px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+</style>
+</head>
+<body>
+
+<h3>抽選</h3>
+
+名前：<input type="text" id="groupNameInput" placeholder="名前を入力" oninput="validateInputs()">
+人数：<input type="number" id="groupSize" value="1" min="1" oninput="validateInputs()">
+
+<button onclick="assign()" id="assignBtn" disabled>抽選する</button>
+<button onclick="resetAll()">リセット</button>
+
+<h3>座席表</h3>
+
+<div id="statusArea">配置済み：0人 ／ 残り：0席</div>
+
+<div id="seatArea"></div>
+
+<h3>抽選履歴</h3>
+<div id="historyArea"></div>
+
+<script>
+let tables = [];
+let groupCounter = 1;
+let history = [];
+
+// ▼ ページリロード時に確認アラート
+window.addEventListener("beforeunload", function (e) {
+  e.preventDefault();
+  e.returnValue = "";
+});
+
+// 固定テーブル構成
+const tableConfig = {
+  A: 6, B: 6, C: 6, D: 6,
+  E: 6, F: 6, G: 6, H: 6,
+  I: 6, J: 6, K: 5, L: 5
+};
+
+// 入力チェック（名前＋人数）
+function validateInputs() {
+  const name = document.getElementById("groupNameInput").value.trim();
+  const size = Number(document.getElementById("groupSize").value);
+  const btn = document.getElementById("assignBtn");
+
+  btn.disabled = !(name !== "" && size > 0);
+}
+
+// 初期化
+function initTables() {
+  tables = [];
+  history = [];
+  for (const key in tableConfig) {
+    const seatCount = tableConfig[key];
+    const seats = [];
+
+    for (let i = 1; i <= seatCount; i++) {
+      seats.push({ number: i, filled: false });
+    }
+
+    tables.push({
+      id: key,
+      seats: seats
+    });
+  }
+  renderSeats();
+  renderHistory();
+}
+
+// ステータス更新
+function updateStatus() {
+  let filled = 0;
+  let total = 0;
+
+  tables.forEach(table => {
+    total += table.seats.length;
+    table.seats.forEach(seat => {
+      if (seat.filled) filled++;
+    });
+  });
+
+  const remaining = total - filled;
+
+  document.getElementById("statusArea").textContent =
+    `配置済み：${filled}人 ／ 残り：${remaining}席`;
+}
+
+// 配列シャッフル
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+}
+
+function assign() {
+  const size = Number(document.getElementById("groupSize").value);
+  let nameInput = document.getElementById("groupNameInput").value.trim();
+  const groupName = nameInput !== "" ? nameInput + "様" : `${groupCounter}組様`;
+
+  groupCounter++;
+
+  const candidates = [];
+
+  for (const table of tables) {
+    const seats = table.seats;
+
+    const indices = [...Array(seats.length).keys()];
+    shuffle(indices);
+
+    for (let idx of indices) {
+      let ok = true;
+
+      for (let j = 0; j < size; j++) {
+        const pos = idx + j;
+        if (pos >= seats.length || seats[pos].filled) {
+          ok = false;
+          break;
+        }
+      }
+
+      if (ok) {
+        candidates.push({ table, startIndex: idx });
+        break;
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    alert("配置できる席がありません");
+    return;
+  }
+
+  const choice = candidates[Math.floor(Math.random() * candidates.length)];
+
+  for (let j = 0; j < size; j++) {
+    choice.table.seats[choice.startIndex + j].filled = true;
+  }
+
+  renderSeats();
+
+  const startSeat = choice.startIndex + 1;
+  const endSeat = choice.startIndex + size;
+
+  // 履歴に追加（様付き）
+  history.push({
+    group: groupName,
+    table: choice.table.id,
+    start: startSeat,
+    end: endSeat
+  });
+
+  renderHistory();
+
+  if (size === 1) {
+    alert(`${groupName} は ${choice.table.id}テーブル${startSeat}番 です`);
+  } else {
+    alert(`${groupName} は ${choice.table.id}テーブル${startSeat}〜${endSeat}番 です`);
+  }
+
+  // 名前欄をクリア
+  document.getElementById("groupNameInput").value = "";
+  validateInputs();
+}
+
+function renderSeats() {
+  const area = document.getElementById("seatArea");
+  area.innerHTML = "";
+
+  const rows = [
+    ["A","B","C","D"],
+    ["E","F","G","H"],
+    ["I","J","K","L"]
+  ];
+
+  rows.forEach(row => {
+    const rowDiv = document.createElement("div");
+    rowDiv.className = "row";
+
+    row.forEach(id => {
+      const table = tables.find(t => t.id === id);
+      const div = document.createElement("div");
+      div.className = "table";
+      div.innerHTML = `<strong>${id}テーブル</strong><br>`;
+
+      table.seats.forEach(seat => {
+        const s = document.createElement("div");
+        s.className = "seat";
+
+        if (seat.filled) {
+          s.classList.add("filled");
+        }
+
+        s.textContent = `${id}${seat.number}`;
+        div.appendChild(s);
+      });
+
+      rowDiv.appendChild(div);
+    });
+
+    area.appendChild(rowDiv);
+  });
+
+  updateStatus();
+}
+
+// 履歴描画（通し番号付き）
+function renderHistory() {
+  const area = document.getElementById("historyArea");
+  area.innerHTML = "";
+
+  history.forEach((item, index) => {
+    const div = document.createElement("div");
+    div.className = "history-item";
+
+    const num = index + 1;
+
+    if (item.start === item.end) {
+      div.textContent = `${num}. ${item.group} → ${item.table}テーブル${item.start}番`;
+    } else {
+      div.textContent = `${num}. ${item.group} → ${item.table}テーブル${item.start}〜${item.end}番`;
+    }
+
+    area.appendChild(div);
+  });
+}
+
+// ▼ リセット時に確認アラート
+function resetAll() {
+  if (!confirm("本当にリセットしますか？")) return;
+
+  groupCounter = 1;
+  initTables();
+  document.getElementById("groupNameInput").value = "";
+  validateInputs();
+}
+
+initTables();
+</script>
+
+</body>
+</html>
